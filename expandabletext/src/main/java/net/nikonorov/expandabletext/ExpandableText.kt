@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.Constraints
 import java.text.BreakIterator
 
 const val COLLAPSED_SPAN = "collapsed_span"
+const val EXPANDED_SPAN = "expanded_span"
 const val LINE_EXTRA_SPACE = 5
 
 @Composable
@@ -23,6 +24,8 @@ fun ExpandableText(
     expandText: String,
     modifier: Modifier = Modifier,
     expandColor: Color = Color.Unspecified,
+    collapseText: String? = null,
+    collapseColor: Color = Color.Unspecified,
     maxLinesCollapsed: Int = 5,
     style: TextStyle = TextStyle.Default,
 ) {
@@ -40,11 +43,15 @@ fun ExpandableText(
         } else {
             null
         }
-        val state = rememberState(text, expandText, expandColor, trimLineRange)
+        val expandState = SpanState(expandText, expandColor)
+        val collapseState = collapseText?.let { SpanState(it, collapseColor) }
+        val state = rememberState(text, expandState, collapseState, trimLineRange, style)
+
         ClickableText(text = state.annotatedString, style = style, onClick = { position ->
             val annotation = state.getClickableAnnotation(position)
             when (annotation?.tag) {
                 COLLAPSED_SPAN -> state.expandState = State.ExpandState.Expanded
+                EXPANDED_SPAN -> state.expandState = State.ExpandState.Collapsed
                 else -> Unit
             }
         })
@@ -54,25 +61,33 @@ fun ExpandableText(
 @Composable
 private fun rememberState(
     text: String,
-    expandText: String,
-    expandTextColor: Color,
+    expandSpanState: SpanState,
+    collapseSpanState: SpanState?,
     lastLineRange: IntRange?,
+    style: TextStyle,
 ): State {
-    return remember(text, lastLineRange) {
+    return remember(text, expandSpanState, collapseSpanState, lastLineRange, style) {
         State(
             text = text,
-            expandText = expandText,
-            expandTextColor = expandTextColor,
+            expandSpanState = expandSpanState,
+            collapseSpanState = collapseSpanState,
             lastLineTrimRange = lastLineRange,
+            style = style,
         )
     }
 }
 
+private data class SpanState(
+    val text: String,
+    val color: Color,
+)
+
 private class State(
     text: String,
-    expandText: String,
-    expandTextColor: Color,
+    expandSpanState: SpanState,
+    collapseSpanState: SpanState?,
     lastLineTrimRange: IntRange?,
+    style: TextStyle,
 ) {
     enum class ExpandState {
         Collapsed, Expanded,
@@ -80,23 +95,40 @@ private class State(
 
     private val defaultAnnotatedText = buildAnnotatedString { append(text) }
     private val collapsedAnnotatedText: AnnotatedString
+    private val expandedAnnotatedText: AnnotatedString
 
     init {
         collapsedAnnotatedText = lastLineTrimRange?.let {
             val lastLineLen = lastLineTrimRange.last - lastLineTrimRange.first + 1
-            val expandTextLen = getSafeLength(expandText)
+            val expandTextLen = getSafeLength(expandSpanState.text)
             val collapsedText =
                 text.take(lastLineTrimRange.last + 1).dropLast(minOf(lastLineLen, expandTextLen + LINE_EXTRA_SPACE))
             val collapsedTextLen = getSafeLength(collapsedText)
-            val expandSpanStyle = TextStyle(color = expandTextColor).toSpanStyle()
+            val expandSpanStyle = style.merge(TextStyle(color = expandSpanState.color)).toSpanStyle()
             buildAnnotatedString {
                 append(collapsedText)
-                append(expandText)
+                append(expandSpanState.text)
                 addStyle(expandSpanStyle, start = collapsedTextLen, end = collapsedTextLen + expandTextLen)
                 addStringAnnotation(tag = COLLAPSED_SPAN,
                     annotation = "",
                     start = collapsedTextLen,
                     end = collapsedTextLen + expandTextLen)
+            }
+        } ?: defaultAnnotatedText
+
+        expandedAnnotatedText = collapseSpanState?.let { span ->
+            val collapseStyle = style.merge(TextStyle(color = span.color)).toSpanStyle()
+            val textLen = getSafeLength(text)
+            val collapsePostfix = "\n${span.text}"
+            val collapseLen = getSafeLength(collapsePostfix)
+            buildAnnotatedString {
+                append(text)
+                append(collapsePostfix)
+                addStyle(collapseStyle, start = textLen, end = textLen + collapseLen)
+                addStringAnnotation(tag = EXPANDED_SPAN,
+                    annotation = "",
+                    start = textLen,
+                    end = textLen + collapseLen)
             }
         } ?: defaultAnnotatedText
     }
@@ -109,14 +141,14 @@ private class State(
             _expandState.value = value
             annotatedString = when (value) {
                 ExpandState.Collapsed -> collapsedAnnotatedText
-                ExpandState.Expanded -> defaultAnnotatedText
+                ExpandState.Expanded -> expandedAnnotatedText
             }
         }
         get() = _expandState.value
 
     fun getClickableAnnotation(position: Int): AnnotatedString.Range<String>? {
         return annotatedString.getStringAnnotations(position, position).firstOrNull {
-            it.tag == COLLAPSED_SPAN
+            it.tag == COLLAPSED_SPAN || it.tag == EXPANDED_SPAN
         }
     }
 }

@@ -19,11 +19,17 @@ fun ExpositionScreen(
     viewModel: ExpositionViewModel = viewModel(factory = ExpositionViewModel.Factory()),
 ) {
     val uiState by viewModel.uiState.collectAsState()
-
+    val expandText = "... more"
+    val collapseText = when (type) {
+        ExpositionType.Collapse -> null
+        ExpositionType.CollapseExpand -> "less"
+    }
     val style: TextStyle = MaterialTheme.typography.body1
     ExpandableText(text = uiState.text,
-        expandText = "... more",
+        expandText = expandText,
         expandColor = MaterialTheme.colors.secondary,
+        collapseText = collapseText,
+        collapseColor = MaterialTheme.colors.secondary,
         style = style,
         modifier = modifier
             .fillMaxWidth()
